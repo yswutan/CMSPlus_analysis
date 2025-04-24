@@ -57,3 +57,66 @@ row_split2 = data.frame(factor(rep(c("Fibroblastes", "ProTumor", "AntiTumor", "T
 PPCRCSC3 <- Heatmap(gsvaall3[16:45, ], col = col_fun2, cluster_rows = FALSE, cluster_columns = FALSE, column_labels=rep("", dim(CMSclin2)[1]), row_split = row_split2, column_split = col_split1)
 ht_list = PPCRCSC2%v%PPCRCSC3
 draw(ht_list)
+
+load("/data0/tan/Task/9.CMS.SDI/data/5.PublicExpSurData/CRCSC/CRCSC.expression.clindata.RData")  ## expall.corr, clindata
+library(GSVA)
+gsva.all.42 <- gsva(expall.corr, CMSsignatures42.v2, method=c("gsva"), kcdf = "Gaussian", min.sz = 1, parallel.sz=40)
+save(gsva.all.42, file="/data0/tan/Task/9.CMS.SDI/Procedures/StartFrom20230514/gsva.all.42.v2.RData")
+
+cmssdirfs <- SurvivalFGPlotSimplify(CMSclin2[CMSclin2$dataset %in% "TCGA", ], "rfsMo", "rfsStat", "CMSTME", Color=c('#E69F24','#0273B3', '#CC79A7', '#3C5488', '#8491B4'), type="months")
+plot_KMCurve(cmssdirfs$clin, cmssdirfs$labs, color=cmssdirfs$Color, font="Helvetica", xlab = "Follow-up (Months)", ylab = paste(cmssdirfs$ylable, "(prob.)", sep=" "))
+
+###########################################
+################# ESTIMATE 
+setwd("/data0/tan/Task/9.CMS.SDI/Procedures/StartFrom20230606/3.differential/immune")
+load("/data0/tan/Task/9.CMS.SDI/data/5.PublicExpSurData/CRCSC/CRCSC.expression.clindata.RData")  ## expall.corr, clindata
+load("/data0/tan/Task/9.CMS.SDI/Procedures/StartFrom20230606/2.model/CMSclin2.gsvaall2.RData")
+
+expcrctcga <- expall.corr[, CMSclin2$sample]
+
+library(estimate)
+A3Estimate <- estimate(dat=expcrctcga, pro="CRCSCTCGA")
+#[1] "Merged dataset includes 9913 genes (499 mismatched)."
+#[1] "1 gene set: StromalSignature  overlap= 136"
+#[1] "2 gene set: ImmuneSignature  overlap= 140"
+A3EstimateScores <- lapply(list(A3=A3Estimate), function(x) {df <- as.data.frame(x); df$TumourPurity <- apply(x, 1, function(y) cos(0.6049872018+0.0001467884 * y[3])); df})[[1]]  ## ref: https://www.nature.com/articles/ncomms3612
+rownames(A3EstimateScores) <- gsub("\\.", "-", rownames(A3EstimateScores))
+save(A3EstimateScores, file="/data0/tan/Task/9.CMS.SDI/Procedures/StartFrom20230606/3.differential/immune/A3EstimateScores.RData")
+
+###########################################
+########## CRCSCTCGA
+CMSclinallE <- merge(CMSclin2, A3EstimateScores, by.x="sample", by.y="row.names")
+#CMSSDIcolor <- c('#E69F24','#0273B3', '#CC79A7', '#2B2F81', '#060606')
+CMSTMESubtype=c(CMS1='#E69F24',CMS2='#0273B3', CMS3='#CC79A7', 'CMS4-IF+'='#3C5488', 'CMS4-IF-'='#8491B4')
+
+### Stromal Score
+bpc1p<-formatC(t.test(CMSclinallE$StromalScore[which(CMSclinallE$CMSTME %in% "CMS4-IF+")], CMSclinallE$StromalScore[which(CMSclinallE$CMSTME %in% "CMS4-IF-")])$p.value, format = "e", digits = 2)
+# p-value = 2.2e-16
+my_comparisons = list( c("CMS4-IF+", "CMS4-IF-") )
+bpc1 <- ggplot(CMSclinallE, aes(x=CMSTME, y=StromalScore, fill=CMSTME)) + geom_boxplot(width=0.8) + 
+      labs(title="CRC Stromal Score",x="Subtype", y = "Stromal Score") + 
+      scale_fill_manual(values=CMSTMESubtype) + theme_bw() + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+      geom_signif(comparisons=my_comparisons, annotations=c(bpc1p), y_position = c(1800), tip_length = 0, vjust=0)
+### Immune Score
+bpc2p<-formatC(t.test(CMSclinallE$ImmuneScore[which(CMSclinallE$CMSTME %in% "CMS4-IF+")], CMSclinallE$ImmuneScore[which(CMSclinallE$CMSTME %in% "CMS4-IF-")])$p.value, format = "e", digits = 2)
+# p-value = 2.2e-16
+my_comparisons = list( c("CMS4-IF+", "CMS4-IF-") )
+bpc2 <- ggplot(CMSclinallE, aes(x=CMSTME, y=ImmuneScore, fill=CMSTME)) + geom_boxplot(width=0.8) + 
+      labs(title="CRC Immune Score",x="Subtype", y = "Immune Score") + 
+      scale_fill_manual(values=CMSTMESubtype) + theme_bw() + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+      geom_signif(comparisons=my_comparisons, annotations=c(bpc2p), y_position = c(2400), tip_length = 0, vjust=0)
+### Tumor purity
+bpc3p<-formatC(t.test(CMSclinallE$TumourPurity[which(CMSclinallE$CMSTME %in% "CMS4-IF+")], CMSclinallE$TumourPurity[which(CMSclinallE$CMSTME %in% "CMS4-IF-")])$p.value, format = "e", digits = 2)
+# p-value = 2.2e-16
+my_comparisons = list( c("CMS4-IF+", "CMS4-IF-") )
+bpc3 <- ggplot(CMSclinallE, aes(x=CMSTME, y=TumourPurity, fill=CMSTME)) + geom_boxplot(width=0.8) + 
+      labs(title="CRC Tumor Purity",x="Subtype", y = "Tumor Purity") + 
+      scale_fill_manual(values=CMSTMESubtype) + theme_bw() + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+      geom_signif(comparisons=my_comparisons, annotations=c(bpc3p), y_position = c(0.9), tip_length = 0, vjust=0)
+
+
+figure <- ggarrange(bpc1, bpc2, bpc3,
+                    labels = c("A", "B", "C"),
+                    ncol = 3, nrow = 1)
+figure
+
